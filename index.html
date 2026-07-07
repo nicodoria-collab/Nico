@@ -267,6 +267,18 @@
 
   .tooltip { position: fixed; background: var(--text-primary); color: var(--page); font-size: 11.5px; padding: 6px 9px; border-radius: 6px; pointer-events: none; opacity: 0; transition: opacity .12s; z-index: 90; white-space: nowrap; }
   .tooltip.show { opacity: 1; }
+
+  /* ---- Sync ---- */
+  .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .sync-dot.on { background: var(--good); }
+  .sync-dot.busy { background: var(--warning); }
+  .sync-dot.err { background: var(--critical); }
+  .sync-status { font-size: 12.5px; padding: 10px 12px; border-radius: 8px; background: var(--surface-1); border: 1px solid var(--border); color: var(--text-secondary); min-height: 20px; }
+  .sync-status.on { background: var(--good-bg); color: var(--good-text); }
+  .sync-status.err { background: var(--critical-bg); color: var(--critical); }
+  .sync-help { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .sync-help a { color: var(--series-1); }
+  .sync-help code { background: var(--surface-1); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 11.5px; }
 </style>
 </head>
 <body>
@@ -284,6 +296,7 @@
     <button data-view="leads">Lead Pipeline</button>
   </nav>
   <div class="header-actions">
+    <button class="btn subtle" id="syncBtn" title="Connect / sync with your Google Sheet"><span id="syncDot" class="sync-dot"></span> <span id="syncLabel">Connect Sheet</span></button>
     <button class="btn subtle hide-sm" id="importBtn" title="Import a saved JSON backup">Import</button>
     <button class="btn subtle hide-sm" id="exportBtn" title="Download a JSON backup">Export</button>
     <button class="btn subtle hide-sm" id="resetBtn" title="Restore original sheet data">Reset</button>
@@ -373,6 +386,34 @@
   </div>
 </div>
 
+<!-- Sync modal -->
+<div class="overlay" id="syncOverlay">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-head"><h3>Connect to your Google Sheet</h3></div>
+    <div class="modal-body" style="grid-template-columns:1fr">
+      <div class="field full">
+        <label>Web App URL</label>
+        <input id="syncUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" />
+      </div>
+      <div class="field full">
+        <label>Access token</label>
+        <input id="syncToken" type="text" placeholder="the secret phrase you set in the script" />
+      </div>
+      <div class="field full"><div id="syncStatus" class="sync-status">Not connected. Paste your Web App URL and token, then Connect.</div></div>
+      <div class="field full">
+        <p class="sync-help">One-time setup: in your sheet open <code>Extensions ▸ Apps Script</code>, paste the provided script, then <code>Deploy ▸ New deployment ▸ Web app</code> (Execute as <b>Me</b>, Access <b>Anyone</b>). Copy the Web app URL here. Full steps are in <code>docs/SETUP-google-sync.md</code>. Two dedicated tabs (<code>Portal_Partners</code>, <code>Portal_Leads</code>) are created automatically — your existing layout is never touched.</p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn danger" id="syncDisconnect" style="display:none">Disconnect</button>
+      <div class="spacer"></div>
+      <button class="btn subtle" id="syncPull" style="display:none">Pull now</button>
+      <button class="btn subtle" id="syncTest">Test</button>
+      <button class="btn primary" id="syncSave">Save &amp; Connect</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 <div class="tooltip" id="tooltip"></div>
 <input type="file" id="importFile" accept="application/json" style="display:none" />
@@ -456,6 +497,7 @@ function seedState() {
 function save() {
   state._uid = uid;
   localStorage.setItem(KEY, JSON.stringify(state));
+  if (connected() && !suppressPush) schedulePush();
 }
 function partnerName(id) { const p = state.partners.find(x => x.id === id); return p ? p.company : ""; }
 
@@ -803,7 +845,139 @@ $("#resetBtn").addEventListener("click", () => {
   }
 });
 
-renderAll();
+/* ============================ Google Sheet sync ============================ */
+const SYNC_KEY = "partnerPortal.sync";
+let sync = loadSync();
+let pushTimer = null, suppressPush = false;
+
+function loadSync() { try { return JSON.parse(localStorage.getItem(SYNC_KEY)) || {}; } catch (e) { return {}; } }
+function saveSync() { localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); }
+function connected() { return !!(sync.url && sync.connected); }
+
+function fmtAgo(ts) {
+  if (!ts) return "";
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + " min ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  return Math.floor(s / 86400) + "d ago";
+}
+function setSyncUI(kind, statusText) {
+  const dot = $("#syncDot"), label = $("#syncLabel"), box = $("#syncStatus");
+  dot.className = "sync-dot" + (kind ? " " + kind : "");
+  label.textContent = kind === "on" ? "Synced" : kind === "busy" ? "Syncing…" : kind === "err" ? "Sync error" : "Connect Sheet";
+  if (box && statusText !== undefined) { box.textContent = statusText; box.className = "sync-status" + (kind === "on" ? " on" : kind === "err" ? " err" : ""); }
+}
+
+async function apiRead(url, token) {
+  const res = await fetch(url + (url.includes("?") ? "&" : "?") + "action=read&token=" + encodeURIComponent(token), { method: "GET", redirect: "follow" });
+  const txt = await res.text();
+  let data; try { data = JSON.parse(txt); } catch (e) { throw new Error("Unexpected response — is this the deployed Web App URL ending in /exec?"); }
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+async function apiWrite(url, token, payload) {
+  const res = await fetch(url, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "write", token, partners: payload.partners, leads: payload.leads }) });
+  const txt = await res.text();
+  let data; try { data = JSON.parse(txt); } catch (e) { throw new Error("Write failed — unexpected response from the sheet."); }
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+function normalizePartner(o) {
+  return { id: o.id || newId(), company: o.company || "", tier: o.tier || "Unassigned", type: o.type || "",
+    contract: o.contract || "", revShare: o.revShare || "", doc: o.doc || "", contact: o.contact || "",
+    lastTB: o.lastTB || "", status: o.status || "Discovery", todo: o.todo || "", notes: o.notes || "",
+    target: Number(o.target) || 0 };
+}
+function normalizeLead(o) {
+  return { id: o.id || newId(), name: o.name || "", partnerId: o.partnerId || "", contact: o.contact || "",
+    stage: STAGES.includes(o.stage) ? o.stage : "Identified", value: Number(o.value) || 0, notes: o.notes || "" };
+}
+
+function schedulePush() {
+  clearTimeout(pushTimer);
+  setSyncUI("busy", "Saving to sheet…");
+  pushTimer = setTimeout(() => push(false), 1500);
+}
+async function push(loud) {
+  if (!sync.url) return;
+  try {
+    setSyncUI("busy");
+    await apiWrite(sync.url, sync.token || "", { partners: state.partners, leads: state.leads });
+    sync.connected = true; sync.last = Date.now(); saveSync();
+    setSyncUI("on", "Last synced " + fmtAgo(sync.last));
+    if (loud) toast("Pushed to Google Sheet");
+  } catch (e) { setSyncUI("err", e.message); if (loud) toast("Sync error: " + e.message); }
+}
+async function pull(silent) {
+  if (!sync.url) return;
+  try {
+    setSyncUI("busy");
+    const data = await apiRead(sync.url, sync.token || "");
+    if (Array.isArray(data.partners) && Array.isArray(data.leads)) {
+      if (data.partners.length === 0 && data.leads.length === 0) {
+        await push(false);            // sheet is empty — seed it from the portal
+      } else {
+        suppressPush = true;
+        state.partners = data.partners.map(normalizePartner);
+        state.leads = data.leads.map(normalizeLead);
+        localStorage.setItem(KEY, JSON.stringify(state));
+        renderAll();
+        suppressPush = false;
+      }
+    }
+    sync.connected = true; sync.last = Date.now(); saveSync();
+    setSyncUI("on", "Last synced " + fmtAgo(sync.last));
+    if (!silent) toast("Pulled latest from Google Sheet");
+  } catch (e) { setSyncUI("err", e.message); if (!silent) toast("Sync error: " + e.message); }
+}
+
+function openSyncModal() {
+  $("#syncUrl").value = sync.url || "";
+  $("#syncToken").value = sync.token || "";
+  const isOn = connected();
+  $("#syncDisconnect").style.display = isOn ? "" : "none";
+  $("#syncPull").style.display = isOn ? "" : "none";
+  if (isOn) setSyncUI("on", "Connected. Last synced " + (sync.last ? fmtAgo(sync.last) : "—"));
+  else setSyncUI("", "Not connected. Paste your Web App URL and token, then Connect.");
+  $("#syncOverlay").classList.add("open");
+}
+function closeSyncModal() { $("#syncOverlay").classList.remove("open"); }
+
+$("#syncBtn").addEventListener("click", openSyncModal);
+$("#syncOverlay").addEventListener("click", e => { if (e.target.id === "syncOverlay") closeSyncModal(); });
+$("#syncTest").addEventListener("click", async () => {
+  const url = $("#syncUrl").value.trim(), token = $("#syncToken").value.trim();
+  if (!url) { setSyncUI("err", "Enter the Web App URL first."); return; }
+  setSyncUI("busy", "Testing connection…");
+  try { const d = await apiRead(url, token); setSyncUI("on", `Connection OK — sheet has ${d.partners.length} partner(s) and ${d.leads.length} lead(s).`); }
+  catch (e) { setSyncUI("err", e.message); }
+});
+$("#syncSave").addEventListener("click", async () => {
+  const url = $("#syncUrl").value.trim(), token = $("#syncToken").value.trim();
+  if (!url) { setSyncUI("err", "Enter the Web App URL first."); return; }
+  sync.url = url; sync.token = token; sync.connected = true; saveSync();
+  setSyncUI("busy", "Connecting…");
+  await pull(true);                 // pull if sheet has data, else seeds it
+  $("#syncDisconnect").style.display = ""; $("#syncPull").style.display = "";
+});
+$("#syncPull").addEventListener("click", () => pull(true));
+$("#syncDisconnect").addEventListener("click", () => {
+  if (!confirm("Disconnect from the sheet? Your data stays in the portal; it just stops syncing.")) return;
+  sync = {}; saveSync(); setSyncUI("", "Disconnected. Your data is still here locally.");
+  $("#syncDisconnect").style.display = "none"; $("#syncPull").style.display = "none";
+  toast("Disconnected");
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && $("#syncOverlay").classList.contains("open")) closeSyncModal(); });
+
+/* ============================ Init ============================ */
+function init() {
+  renderAll();
+  if (connected()) { setSyncUI("busy", "Connecting…"); pull(true); }
+  else setSyncUI("", "");
+}
+init();
 </script>
 </body>
 </html>
