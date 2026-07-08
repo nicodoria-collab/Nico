@@ -12,8 +12,8 @@ There are two parts:
 
 ## Part A — Deploy the sync script (~3 min)
 
-The portal reads and writes two dedicated tabs it creates for you —
-`Portal_Partners` and `Portal_Leads`. **Your existing sheet layout is never
+The portal reads and writes three dedicated tabs it creates for you —
+`Portal_Partners`, `Portal_Leads`, and `Portal_Followups`. **Your existing sheet layout is never
 touched.**
 
 1. Open your partner spreadsheet in Google Sheets.
@@ -44,6 +44,11 @@ touched.**
 > **If you edit the script later**, redeploy with **Deploy ▸ Manage deployments ▸
 > ✏️ Edit ▸ Version: New version ▸ Deploy** so the changes go live. The URL stays
 > the same.
+>
+> **Already set up sync before the Follow-ups update?** Re-paste the latest
+> `apps-script/Code.gs` and redeploy a **New version** as above. Until you do, the
+> portal still works and your follow-ups sync will simply resume once the new
+> version is live — nothing is lost.
 
 ### Connect the portal
 1. Open the portal and click **Connect Sheet** (top-right).

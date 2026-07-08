@@ -179,11 +179,38 @@
   .bar-row .bar-val { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-primary); }
 
   /* ---- Attention list ---- */
-  .attn-item { display: flex; gap: 12px; align-items: flex-start; padding: 11px 0; border-bottom: 1px solid var(--gridline); }
-  .attn-item:last-child { border-bottom: none; }
-  .attn-item .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; }
-  .attn-item .who { font-weight: 600; }
-  .attn-item .what { color: var(--text-secondary); font-size: 12.5px; }
+  /* ---- Follow-ups (interactive) ---- */
+  .fu-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .fu-head-actions { display: flex; align-items: center; gap: 12px; flex: none; }
+  .fu-toggle { font-size: 12px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+  .fu-add { display: flex; gap: 8px; margin: 14px 0 6px; flex-wrap: wrap; }
+  .fu-add input#fuInput { flex: 1; min-width: 200px; font: inherit; padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface-1); color: var(--text-primary); }
+  .fu-add input#fuInput:focus, .fu-add select:focus { outline: 2px solid var(--series-1); outline-offset: -1px; }
+  #followupList { margin-top: 6px; }
+  .fu-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--card); margin-bottom: 7px; box-shadow: var(--shadow); border-left: 4px solid var(--baseline); }
+  .fu-item.dragging { opacity: 0.4; }
+  .fu-item.drop-target { border-top: 2px solid var(--series-1); }
+  .fu-item.p-High { border-left-color: var(--critical); }
+  .fu-item.p-Medium { border-left-color: var(--warning); }
+  .fu-item.p-Low { border-left-color: var(--good); }
+  .fu-item.done { opacity: 0.55; }
+  .fu-item.done .fu-text { text-decoration: line-through; color: var(--muted); }
+  .fu-handle { cursor: grab; color: var(--muted); font-size: 15px; line-height: 1; padding: 2px 3px; flex: none; touch-action: none; }
+  .fu-handle:active { cursor: grabbing; }
+  .fu-check { width: 17px; height: 17px; flex: none; cursor: pointer; accent-color: var(--good); }
+  .fu-rank { font-size: 11px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; width: 18px; text-align: center; flex: none; }
+  .fu-body { flex: 1; min-width: 0; }
+  .fu-text { font-weight: 550; outline: none; border-radius: 4px; padding: 1px 3px; }
+  .fu-text:focus { background: var(--info-bg); box-shadow: 0 0 0 2px var(--series-1); }
+  .fu-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .fu-partner { color: var(--series-1); }
+  .fu-prio { border: none; font: inherit; font-size: 11px; font-weight: 650; padding: 3px 9px; border-radius: 20px; cursor: pointer; background: var(--gridline); color: var(--text-secondary); flex: none; }
+  .fu-prio.p-High { background: var(--critical-bg); color: var(--critical); }
+  .fu-prio.p-Medium { background: var(--warning-bg); color: var(--warning); }
+  .fu-prio.p-Low { background: var(--good-bg); color: var(--good-text); }
+  .fu-del { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 3px 6px; border-radius: 6px; flex: none; }
+  .fu-del:hover { background: var(--critical-bg); color: var(--critical); }
+  .fu-divider { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 650; margin: 14px 0 8px; }
 
   /* ---- Toolbar ---- */
   .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
@@ -320,10 +347,29 @@
         <div id="stageChart"></div>
       </div>
     </div>
-    <div class="panel">
-      <h3>Follow-ups &amp; open items</h3>
-      <p class="caption">Partners with outstanding to-dos or missing information — your next actions.</p>
-      <div id="attnList"></div>
+    <div class="panel" id="followupPanel">
+      <div class="fu-head">
+        <div>
+          <h3>Follow-ups &amp; open items</h3>
+          <p class="caption">Your prioritized next actions — drag by the handle to rank; top = most important.</p>
+        </div>
+        <div class="fu-head-actions">
+          <label class="fu-toggle"><input type="checkbox" id="fuShowDone" /> Show completed</label>
+          <button class="btn subtle" id="fuClearDone">Clear completed</button>
+        </div>
+      </div>
+      <div class="fu-add">
+        <input id="fuInput" type="text" placeholder="Add a follow-up and press Enter…" />
+        <select id="fuAddPartner" class="filter"><option value="">Link partner (optional)</option></select>
+        <select id="fuAddPriority" class="filter">
+          <option value="">No priority</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+        <button class="btn primary" id="fuAddBtn">Add</button>
+      </div>
+      <div id="followupList"></div>
     </div>
   </section>
 
@@ -492,7 +538,26 @@ function seedState() {
     name: l.name, partnerId: byName[l.partner] || "", contact: l.contact || "",
     stage: l.stage, value: l.value || 0, notes: l.notes || ""
   }));
-  return { partners, leads, _uid: n };
+  const followups = buildSeedFollowups(partners, () => "id" + (++n));
+  return { partners, leads, followups, _uid: n };
+}
+/* Seed follow-ups from partners that already have an open to-do so nothing is lost. */
+function buildSeedFollowups(partners, mkId) {
+  const withTodo = partners.filter(p => (p.todo || "").trim());
+  const tierRank = t => TIERS.indexOf(t) < 0 ? 99 : TIERS.indexOf(t);
+  withTodo.sort((a, b) => tierRank(a.tier) - tierRank(b.tier));
+  return withTodo.map((p, i) => ({
+    id: mkId(), text: p.todo.trim(), partnerId: p.id,
+    priority: p.tier === "Tier 1" ? "High" : p.tier === "Tier 2" ? "Medium" : "",
+    done: false, order: i
+  }));
+}
+/* Migration: older saved states have no followups array — build one once. */
+function ensureFollowups() {
+  if (!Array.isArray(state.followups)) {
+    state.followups = buildSeedFollowups(state.partners, newId);
+    save();
+  }
 }
 function save() {
   state._uid = uid;
@@ -516,7 +581,9 @@ function renderDashboard() {
   const handed = L.filter(l => l.stage === "Handed to Sales").length;
   const won = L.filter(l => l.stage === "Closed Won").length;
   const totalTarget = P.reduce((s, p) => s + (Number(p.target) || 0), 0);
-  const openTodos = P.filter(p => (p.todo || "").trim()).length;
+  const fu = state.followups || [];
+  const openFu = fu.filter(f => !f.done).length;
+  const highFu = fu.filter(f => !f.done && f.priority === "High").length;
 
   const stats = [
     { label: "Total partners", value: P.length, sub: active + " active" },
@@ -524,7 +591,7 @@ function renderDashboard() {
     { label: "Handed to sales", value: handed, sub: "top-of-funnel delivered", good: handed > 0 },
     { label: "Closed won", value: won, sub: "converted referrals", good: won > 0 },
     { label: "Revenue targets", value: money(totalTarget), sub: "combined OKR / LTM goals" },
-    { label: "Open follow-ups", value: openTodos, sub: "partners with to-dos" }
+    { label: "Open follow-ups", value: openFu, sub: highFu ? highFu + " high priority" : "prioritized to-do list" }
   ];
   $("#statGrid").innerHTML = stats.map(s =>
     `<div class="stat"><div class="label">${esc(s.label)}</div>
@@ -541,20 +608,155 @@ function renderDashboard() {
   const stageColors = STAGES.map(s => STAGE_COLOR[s]);
   $("#stageChart").innerHTML = barChart(stageCounts, stageColors);
 
-  // Attention list
-  const attn = P.filter(p => (p.todo || "").trim() || !p.contact || !p.lastTB)
-    .map(p => {
-      let why, color;
-      if ((p.todo || "").trim()) { why = p.todo; color = "var(--warning)"; }
-      else if (!p.contact) { why = "No contact assigned"; color = "var(--serious)"; }
-      else { why = "No touch-base logged yet"; color = "var(--muted)"; }
-      return { company: p.company, tier: p.tier, why, color };
-    });
-  $("#attnList").innerHTML = attn.length
-    ? attn.map(a => `<div class="attn-item"><span class="dot" style="background:${a.color}"></span>
-        <div><div class="who">${esc(a.company)} <span class="subtext" style="color:var(--muted)">· ${esc(a.tier)}</span></div>
-        <div class="what">${esc(a.why)}</div></div></div>`).join("")
-    : `<div class="empty">Nothing outstanding — all partners have a contact, a logged touch-base, and no open to-dos.</div>`;
+  // Interactive follow-ups
+  renderFollowups();
+}
+
+/* ---- Follow-ups: interactive, prioritizable, draggable ---- */
+const PRIOS = ["", "High", "Medium", "Low"];
+
+function renderFollowups() {
+  const fu = state.followups || [];
+  const showDone = $("#fuShowDone") && $("#fuShowDone").checked;
+
+  // Populate the "link partner" dropdown (preserve current selection)
+  const sel = $("#fuAddPartner");
+  if (sel) {
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">Link partner (optional)</option>` +
+      state.partners.slice().sort((a, b) => a.company.localeCompare(b.company))
+        .map(p => `<option value="${p.id}">${esc(p.company)}</option>`).join("");
+    sel.value = cur;
+  }
+
+  const active = fu.filter(f => !f.done).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const done = fu.filter(f => f.done);
+  const list = $("#followupList");
+
+  if (!fu.length) {
+    list.innerHTML = `<div class="empty">No follow-ups yet. Add your first action above — then drag to rank by priority.</div>`;
+    return;
+  }
+
+  let html = active.map((f, i) => fuRow(f, i + 1)).join("");
+  if (showDone && done.length) {
+    html += `<div class="fu-divider">Completed (${done.length})</div>` + done.map(f => fuRow(f, null)).join("");
+  }
+  if (!active.length && !showDone) {
+    html = `<div class="empty">All caught up — every follow-up is done. 🎉 Toggle “Show completed” to review them.</div>`;
+  }
+  list.innerHTML = html;
+}
+
+function fuRow(f, rank) {
+  const pName = f.partnerId ? partnerName(f.partnerId) : "";
+  const pClass = f.priority ? "p-" + f.priority : "";
+  const draggable = !f.done;
+  return `<div class="fu-item ${pClass}${f.done ? " done" : ""}" data-id="${f.id}"${draggable ? ' draggable="true"' : ""}>
+    ${draggable ? `<span class="fu-handle" title="Drag to reprioritize">⠿</span>` : `<span class="fu-handle" style="visibility:hidden">⠿</span>`}
+    ${rank ? `<span class="fu-rank">${rank}</span>` : `<span class="fu-rank"></span>`}
+    <input type="checkbox" class="fu-check" ${f.done ? "checked" : ""} title="Mark complete" />
+    <div class="fu-body">
+      <div class="fu-text" contenteditable="true" spellcheck="false">${esc(f.text)}</div>
+      ${pName ? `<div class="fu-meta"><span class="fu-partner">${esc(pName)}</span></div>` : ""}
+    </div>
+    <button class="fu-prio ${pClass}" title="Click to change priority">${f.priority || "Set priority"}</button>
+    <button class="fu-del" title="Delete">×</button>
+  </div>`;
+}
+
+function addFollowup(text, partnerId, priority) {
+  text = (text || "").trim();
+  if (!text) return;
+  const minOrder = Math.min(0, ...state.followups.filter(f => !f.done).map(f => f.order ?? 0));
+  state.followups.push({ id: newId(), text, partnerId: partnerId || "", priority: priority || "", done: false, order: minOrder - 1 });
+  normalizeOrders();
+  renderAll();
+  toast("Follow-up added");
+}
+function normalizeOrders() {
+  state.followups.filter(f => !f.done).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .forEach((f, i) => { f.order = i; });
+}
+
+let fuDragId = null;
+function wireFollowups() {
+  // Quick-add
+  const input = $("#fuInput");
+  const doAdd = () => { addFollowup(input.value, $("#fuAddPartner").value, $("#fuAddPriority").value); input.value = ""; };
+  $("#fuAddBtn").addEventListener("click", doAdd);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doAdd(); } });
+  $("#fuShowDone").addEventListener("change", renderFollowups);
+  $("#fuClearDone").addEventListener("click", () => {
+    const n = state.followups.filter(f => f.done).length;
+    if (!n) { toast("No completed items to clear"); return; }
+    if (!confirm(`Clear ${n} completed follow-up(s)?`)) return;
+    state.followups = state.followups.filter(f => !f.done);
+    renderAll(); toast("Cleared completed");
+  });
+
+  // Delegated events on the list
+  const list = $("#followupList");
+  list.addEventListener("click", e => {
+    const row = e.target.closest(".fu-item"); if (!row) return;
+    const f = state.followups.find(x => x.id === row.dataset.id); if (!f) return;
+    if (e.target.classList.contains("fu-del")) {
+      state.followups = state.followups.filter(x => x.id !== f.id); renderAll(); toast("Deleted");
+    } else if (e.target.classList.contains("fu-prio")) {
+      f.priority = PRIOS[(PRIOS.indexOf(f.priority) + 1) % PRIOS.length]; renderAll();
+    }
+  });
+  list.addEventListener("change", e => {
+    if (!e.target.classList.contains("fu-check")) return;
+    const row = e.target.closest(".fu-item");
+    const f = state.followups.find(x => x.id === row.dataset.id); if (!f) return;
+    f.done = e.target.checked;
+    if (!f.done) { const min = Math.min(0, ...state.followups.filter(x => !x.done && x.id !== f.id).map(x => x.order ?? 0)); f.order = min - 1; }
+    normalizeOrders(); renderAll();
+  });
+  // Inline edit: save on blur
+  list.addEventListener("blur", e => {
+    if (!e.target.classList.contains("fu-text")) return;
+    const row = e.target.closest(".fu-item");
+    const f = state.followups.find(x => x.id === row.dataset.id); if (!f) return;
+    const val = e.target.textContent.trim();
+    if (val && val !== f.text) { f.text = val; save(); }
+    else if (!val) { e.target.textContent = f.text; }
+  }, true);
+  list.addEventListener("keydown", e => {
+    if (e.target.classList.contains("fu-text") && e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+  });
+
+  // Drag to reorder (priority ranking)
+  list.addEventListener("dragstart", e => {
+    const row = e.target.closest(".fu-item"); if (!row) return;
+    fuDragId = row.dataset.id; row.classList.add("dragging");
+  });
+  list.addEventListener("dragend", e => {
+    const row = e.target.closest(".fu-item"); if (row) row.classList.remove("dragging");
+    fuDragId = null;
+    // Persist new order from DOM
+    const ids = [...list.querySelectorAll(".fu-item[draggable='true']")].map(el => el.dataset.id);
+    ids.forEach((id, i) => { const f = state.followups.find(x => x.id === id); if (f) f.order = i; });
+    renderAll();
+  });
+  list.addEventListener("dragover", e => {
+    e.preventDefault();
+    const dragging = list.querySelector(".fu-item.dragging"); if (!dragging) return;
+    const after = fuDragAfter(list, e.clientY);
+    if (after == null) list.appendChild(dragging);
+    else list.insertBefore(dragging, after);
+  });
+}
+function fuDragAfter(list, y) {
+  const els = [...list.querySelectorAll(".fu-item[draggable='true']:not(.dragging)")];
+  let closest = { offset: -Infinity, el: null };
+  for (const el of els) {
+    const box = el.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) closest = { offset, el };
+  }
+  return closest.el;
 }
 
 function barChart(rows, colors) {
@@ -877,7 +1079,7 @@ async function apiRead(url, token) {
   return data;
 }
 async function apiWrite(url, token, payload) {
-  const res = await fetch(url, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "write", token, partners: payload.partners, leads: payload.leads }) });
+  const res = await fetch(url, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "write", token, partners: payload.partners, leads: payload.leads, followups: payload.followups }) });
   const txt = await res.text();
   let data; try { data = JSON.parse(txt); } catch (e) { throw new Error("Write failed — unexpected response from the sheet."); }
   if (data.error) throw new Error(data.error);
@@ -894,6 +1096,12 @@ function normalizeLead(o) {
   return { id: o.id || newId(), name: o.name || "", partnerId: o.partnerId || "", contact: o.contact || "",
     stage: STAGES.includes(o.stage) ? o.stage : "Identified", value: Number(o.value) || 0, notes: o.notes || "" };
 }
+function normalizeFollowup(o, i) {
+  return { id: o.id || newId(), text: o.text || "", partnerId: o.partnerId || "",
+    priority: ["High", "Medium", "Low"].includes(o.priority) ? o.priority : "",
+    done: o.done === true || o.done === "TRUE" || o.done === "true",
+    order: Number.isFinite(Number(o.order)) ? Number(o.order) : i };
+}
 
 function schedulePush() {
   clearTimeout(pushTimer);
@@ -904,7 +1112,7 @@ async function push(loud) {
   if (!sync.url) return;
   try {
     setSyncUI("busy");
-    await apiWrite(sync.url, sync.token || "", { partners: state.partners, leads: state.leads });
+    await apiWrite(sync.url, sync.token || "", { partners: state.partners, leads: state.leads, followups: state.followups });
     sync.connected = true; sync.last = Date.now(); saveSync();
     setSyncUI("on", "Last synced " + fmtAgo(sync.last));
     if (loud) toast("Pushed to Google Sheet");
@@ -922,6 +1130,7 @@ async function pull(silent) {
         suppressPush = true;
         state.partners = data.partners.map(normalizePartner);
         state.leads = data.leads.map(normalizeLead);
+        if (Array.isArray(data.followups)) state.followups = data.followups.map(normalizeFollowup);
         localStorage.setItem(KEY, JSON.stringify(state));
         renderAll();
         suppressPush = false;
@@ -973,6 +1182,8 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && $("#syncOv
 
 /* ============================ Init ============================ */
 function init() {
+  ensureFollowups();
+  wireFollowups();
   renderAll();
   if (connected()) { setSyncUI("busy", "Connecting…"); pull(true); }
   else setSyncUI("", "");

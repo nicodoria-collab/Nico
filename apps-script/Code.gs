@@ -13,31 +13,36 @@ const SECRET = "change-me-to-a-secret";
 
 const PARTNER_TAB  = "Portal_Partners";
 const LEAD_TAB     = "Portal_Leads";
+const FOLLOWUP_TAB = "Portal_Followups";
 const PARTNER_COLS = ["id", "company", "tier", "type", "contract", "revShare", "doc",
                       "contact", "lastTB", "status", "todo", "notes", "target"];
 const LEAD_COLS    = ["id", "name", "partnerId", "contact", "stage", "value", "notes"];
+const FOLLOWUP_COLS = ["id", "text", "partnerId", "priority", "done", "order"];
 
-/** Read: GET ?action=read&token=... → { partners:[...], leads:[...] } */
+/** Read: GET ?action=read&token=... → { partners:[...], leads:[...], followups:[...] } */
 function doGet(e) {
   try {
     checkToken_((e && e.parameter && e.parameter.token) || "");
     return json_({
-      partners: readTab_(PARTNER_TAB, PARTNER_COLS),
-      leads:    readTab_(LEAD_TAB, LEAD_COLS)
+      partners:  readTab_(PARTNER_TAB, PARTNER_COLS),
+      leads:     readTab_(LEAD_TAB, LEAD_COLS),
+      followups: readTab_(FOLLOWUP_TAB, FOLLOWUP_COLS)
     });
   } catch (err) {
     return json_({ error: String(err && err.message || err) });
   }
 }
 
-/** Write: POST body { action:"write", token, partners:[...], leads:[...] } */
+/** Write: POST body { action:"write", token, partners:[...], leads:[...], followups:[...] } */
 function doPost(e) {
   try {
     const body = JSON.parse((e && e.postData && e.postData.contents) || "{}");
     checkToken_(body.token || "");
     writeTab_(PARTNER_TAB, PARTNER_COLS, body.partners || []);
     writeTab_(LEAD_TAB, LEAD_COLS, body.leads || []);
-    return json_({ ok: true, partners: (body.partners || []).length, leads: (body.leads || []).length });
+    if (Array.isArray(body.followups)) writeTab_(FOLLOWUP_TAB, FOLLOWUP_COLS, body.followups);
+    return json_({ ok: true, partners: (body.partners || []).length, leads: (body.leads || []).length,
+      followups: (body.followups || []).length });
   } catch (err) {
     return json_({ error: String(err && err.message || err) });
   }
